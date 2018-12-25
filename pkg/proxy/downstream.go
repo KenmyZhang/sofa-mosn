@@ -137,7 +137,11 @@ func newActiveStream(ctx context.Context, proxy *proxy, responseSender types.Str
 func (s *downStream) endStream() {
 	var isReset bool
 	if s.responseSender != nil {
-		if !s.downstreamRecvDone || !s.upstreamProcessDone {
+		if !s.downstreamRecvDone {
+			atomic.StoreUint32(&s.downstreamReset, 1)
+		}
+
+		if !s.upstreamProcessDone {
 			// if downstream req received not done, or local proxy process not done by handle upstream response,
 			// just mark it as done and reset stream as a failed case
 			s.upstreamProcessDone = true
@@ -168,7 +172,8 @@ func (s *downStream) cleanStream() {
 	}
 
 	// reset corresponding upstream stream
-	if s.upstreamRequest != nil {
+	if s.upstreamRequest != nil && !s.upstreamProcessDone {
+		s.upstreamProcessDone = true
 		s.upstreamRequest.resetStream()
 	}
 

@@ -132,29 +132,12 @@ func newActiveStream(ctx context.Context, proxy *proxy, responseSender types.Str
 	return stream
 }
 
-// case 1: downstream's lifecycle ends normally
-// case 2: downstream got reset. See downStream.resetStream for more detail
+// downstream's lifecycle ends normally
 func (s *downStream) endStream() {
-	var isReset bool
-	if s.responseSender != nil {
-		if !s.downstreamRecvDone {
-			atomic.StoreUint32(&s.downstreamReset, 1)
-		}
-
-		if !s.upstreamProcessDone {
-			// if downstream req received not done, or local proxy process not done by handle upstream response,
-			// just mark it as done and reset stream as a failed case
-			s.upstreamProcessDone = true
-
-			// reset downstream will trigger a clean up, see OnResetStream
-			s.responseSender.GetStream().ResetStream(types.StreamLocalReset)
-			isReset = true
-		}
+	if s.responseSender != nil && !s.downstreamRecvDone {
+		atomic.StoreUint32(&s.downstreamReset, 1)
 	}
-
-	if !isReset {
-		s.cleanStream()
-	}
+	s.cleanStream()
 
 	// note: if proxy logic resets the stream, there maybe some underlying data in the conn.
 	// we ignore this for now, fix as a todo
@@ -870,7 +853,14 @@ func (s *downStream) doRetry() {
 // 1. downstream filter reset downstream
 // 2. corresponding upstream got reset
 func (s *downStream) resetStream() {
-	s.endStream()
+	if s.responseSender != nil && !s.upstreamProcessDone {
+		// if downstream req received not done, or local proxy process not done by handle upstream response,
+		// just mark it as done and reset stream as a failed case
+		s.upstreamProcessDone = true
+
+		// reset downstream will trigger a clean up, see OnResetStream
+		s.responseSender.GetStream().ResetStream(types.StreamLocalReset)
+	}
 }
 
 func (s *downStream) sendHijackReply(code int, headers types.HeaderMap) {
